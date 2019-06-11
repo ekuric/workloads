@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scale-ci-workload-script
+data:
+  run.sh: |
+    #!/bin/sh
+    # pbench Configuration
+    echo "$(date -u) Configuring pbench for Pod Vertical"
+    mkdir -p /var/lib/pbench-agent/tools-default/
+    echo "${USER_NAME:-default}:x:$(id -u):0:${USER_NAME:-default} user:${HOME}:/sbin/nologin" >> /etc/passwd
+    echo "" > /var/lib/pbench-agent/tools-default/oc
+    echo "workload" > /var/lib/pbench-agent/tools-default/label
+    if [[ -v ENABLE_PBENCH_AGENTS ]]; then
+      echo "" > /var/lib/pbench-agent/tools-default/disk
+      echo "" > /var/lib/pbench-agent/tools-default/iostat
+      echo "" > /var/lib/pbench-agent/tools-default/mpstat
+      echo "" > /var/lib/pbench-agent/tools-default/perf
+      echo "" > /var/lib/pbench-agent/tools-default/pidstat
+      master_nodes=`oc get nodes --show-labels -l pbench_agent=true,node-role.kubernetes.io/master= | grep master | awk '{print $1}'`
+      for node in $master_nodes; do
+        echo "master" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+      infra_nodes=`oc get nodes --show-labels -l pbench_agent=true,node-role.kubernetes.io/infra= | grep infra | awk '{print $1}'`
+      for node in $infra_nodes; do
+        echo "infra" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+      worker_nodes=`oc get nodes --show-labels -l pbench_agent=true,node-role.kubernetes.io/worker= | grep worker | awk '{print $1}'`
+      for node in $worker_nodes; do
+        echo "worker" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+    fi
+    source /opt/pbench-agent/profile
+    echo "$(date -u) Done configuring pbench for Pod Vertical"
+    # End pbench Configuration
+
+    # Test Configuration
+    echo "$(date -u) Running PVC scale test"
+    pbench-user-benchmark -- 'VIPERCONFIG=/root/workload/pvcscale.yml openshift-tests run-test "[Feature:Performance][Serial][Slow] Load cluster should load the cluster [Suite:openshift]"'
+    # we need here part to collect data from pvcscale test
+    pbench-copy-results --prefix {{ pvcscale_test_prefix }}
+    echo "$(date -u) Completed PVC scale test"
+    # End Test Configuration
+  pvcscale.yml: |
+    provider: local
+    ClusterLoader:
+      cleanup: {{ pvcscale_cleanup }}
+      projects:
+        - num: 1
+          basename: {{ pvcscale_basename }}
+          tuning: default
+          ifexists: delete
+          templates:
+            - num: {{ pvcscale_maxpods }}
+              basename: pvcscale
+              file: pvcscaletemplate.yaml
+      tuningsets:
+        - name: default
+          pods:
+            stepping:
+              stepsize: {{ pvcscale_stepsize }}
+              pause: {{ pvcscale_pause }}
+            ratelimit:
+                delay: 0
+  pvcscaletemplate.yaml: |
+  kind: Template
+  apiVersion: v1
+  metadata:
+    name: pvcscale-test
+    labels:
+      name: pvcscale-test
+    annotations:
+      descriptions: PVC scale test - start pods and mount PVC from StorageClass
+      tags: pvc, pvc-test
+  objects:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: "${PVC_NAME}"
+    annotations:
+        volume.beta.kubernetes.io/storage-class: {{ pvcscale_storageclass }} 
+    spec:
+      accessModes:
+      - {{ access_modes }}
+      resources:
+        requests:
+          storage: {{ pvcscale_storage_size }}
+  - kind: Pod
+    apiVersion: v1
+    metadata:
+      generateName: pvc-pod-
+      labels:
+        name: pvc-pod-${IDENTIFIER}
+    spec:
+      containers:
+      - image: {{ pvcscale_pod_image }}
+        imagePullPolicy: IfNotPresent
+        name: fio-pod
+        ports: []
+        volumeMounts:
+        - name: persistentvolume
+        mountPath: "/mnt/pvcmount"
+        securityContext:
+          apabilities: {}
+          privileged: false
+          seLinuxOptions:
+            level: s0:c9,c4
+        terminationMessagePath: "/dev/termination-log"
+      restartPolicy: Never
+      volumes:
+      - name: persistentvolume
+        persistentVolumeClaim:
+          claimName: "${PVC_NAME}"
+parameters:
+- name: PVC_NAME
+  description: PVC name
+  required: true
+  from: pvc[a-z0-9]{10}
+  generate: expression
+- name: IDENTIFIER
+  description: Number to append to the name of resources
+  value: '1'
