@@ -111,12 +111,12 @@ data:
       - name: persistentvolume
         persistentVolumeClaim:
           claimName: "${PVC_NAME}"
-parameters:
-- name: PVC_NAME
-  description: PVC name
-  required: true
-  from: pvc[a-z0-9]{10}
-  generate: expression
-- name: IDENTIFIER
-  description: Number to append to the name of resources
-  value: '1'
+  parameters:
+  - name: PVC_NAME
+    description: PVC name
+    required: true
+    from: pvc[a-z0-9]{10}
+    generate: expression
+  - name: IDENTIFIER
+    description: Number to append to the name of resources
+    value: '1'
