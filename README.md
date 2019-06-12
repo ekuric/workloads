@@ -337,3 +337,54 @@ NAMESPACE_CLEANUP
 HTTP_STRESS_CONTAINER_IMAGE
 HTTP_SERVER_CONTAINER_IMAGE
 ```
+
+### PVC Scale Workload 
+
+This test creates desired number of pods with PVC attached and them measure 
+time necessary for pods to start. The focus is on storage backend scalability.
+One can create different scenarios with various PVC sizes and them compare time 
+necessary for pods to start with various storage backends. 
+
+Prerequesties : 
+
+PVC scale test expects fully functional storage backend which can be used to
+dynamically allocate PVC, in this test storage/storage class is not configured. 
+If storage backend is not functional and dynamic PVC allocation is not working 
+then this test will not work. 
+
+### Environment variables for PVC Scale workload playbook
+
+```
+###############################################################################
+# Ansible SSH variables.
+###############################################################################
+PUBLIC_KEY
+PRIVATE_KEY
+
+ORCHESTRATION_USER
+###############################################################################
+# RHCOS workload variables.
+###############################################################################
+WORKLOAD_IMAGE
+KUBECONFIG_FILE
+PBENCH_SSH_PRIVATE_KEY_FILE
+PBENCH_SSH_PUBLIC_KEY_FILE
+ENABLE_PBENCH_AGENTS
+PBENCH_SERVER
+
+SCALE_CI_RESULTS_TOKEN
+JOB_COMPLETION_POLL_ATTEMPTS
+
+# PVC Scale workload specific parameters:
+PVCSCALE_TEST_PREFIX
+PVCSCALE_CLEANUP
+PVCSCALE_BASENAME
+PVCSCALE_MAXPODS
+PVCSCALE_POD_IMAGE
+PVCSCALE_STEPSIZE
+PVCSCALE_PAUSE
+PVCSCALE_STORAGE_SIZE
+PVCSCALE_STORAGECLASS
+ACCESS_MODES
+PVC_NAME
+``` 
