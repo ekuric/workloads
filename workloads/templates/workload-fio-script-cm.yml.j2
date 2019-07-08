@@ -1,0 +1,181 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scale-ci-workload-script
+data:
+  run.sh: |
+    #!/bin/sh
+    set -eo pipefail
+    # pbench Configuration
+    echo "$(date -u) Configuring pbench for PVC scale test"
+    mkdir -p /var/lib/pbench-agent/tools-default/
+    echo "${USER_NAME:-default}:x:$(id -u):0:${USER_NAME:-default} user:${HOME}:/sbin/nologin" >> /etc/passwd
+    echo "" > /var/lib/pbench-agent/tools-default/oc
+    echo "workload" > /var/lib/pbench-agent/tools-default/label
+    if [[ -v ENABLE_PBENCH_AGENTS ]]; then
+      echo "" > /var/lib/pbench-agent/tools-default/disk
+      echo "" > /var/lib/pbench-agent/tools-default/iostat
+      echo "" > /var/lib/pbench-agent/tools-default/mpstat
+      echo "" > /var/lib/pbench-agent/tools-default/perf
+      echo "" > /var/lib/pbench-agent/tools-default/pidstat
+      master_nodes=`oc get nodes -l pbench_agent=true,node-role.kubernetes.io/master= --no-headers | awk '{print $1}'`
+      for node in $master_nodes; do
+        echo "master" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+      infra_nodes=`oc get nodes -l pbench_agent=true,node-role.kubernetes.io/infra= --no-headers | awk '{print $1}'`
+      for node in $infra_nodes; do
+        echo "infra" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+      worker_nodes=`oc get nodes -l pbench_agent=true,node-role.kubernetes.io/worker= --no-headers | awk '{print $1}'`
+      for node in $worker_nodes; do
+        echo "worker" > /var/lib/pbench-agent/tools-default/remote@$node
+      done
+    fi
+    source /opt/pbench-agent/profile
+    echo "$(date -u) Done configuring pbench for PVC scale test"
+    # End pbench Configuration
+
+    # Test Configuration
+    echo "$(date -u) Running PVC scale test"
+    pbench-user-benchmark --config="{{ fiotest_prefix }}-pods-{{ fiotest_maxpods }}-sc-{{ fiotest_storageclass }}-create_pods" -- 'VIPERCONFIG=/root/workload/fiotest.yml openshift-tests run-test "[Feature:Performance][Serial][Slow] Load cluster should load the cluster [Suite:openshift]"'
+
+    echo "$(date -u) Pods/PVC are crated ..."
+    # End Test Configuration
+    echo "Running pvc data collection"
+
+    # wait until all pods are started and then collect data
+    while [[ $(oc get pods -n {{ fiotest_basename }}0 | grep pvc | grep Run |wc -l) -lt {{ fiotest_maxpods }}  ]] ; do
+      sleep 30
+      echo "Waiting on pods to start..."
+    done
+    cp /root/workload/fiotest.sh /tmp/
+    # todo: define how long to wait before stopping in case pods are not starting
+    pbench-user-benchmark --config="{{ fiotest_prefix }}-pods-{{ fiotest_maxpods }}-sc-{{ fiotest_storageclass }}" -- /tmp/fiotest.sh
+    pbench-copy-results --prefix "{{ fiotest_prefix }}"-"{{ fiotest_maxpods }}"-"{{ fiotest_storageclass }}"
+    if [[ {{ fiotest_cleanup }} == "true" ]]; then
+       oc delete project {{ fiotest_basename }}0
+       while [ "$(oc get project |grep {{ fiotest_basename }}0 | awk '{print $1}')" == {{ fiotest_basename }}0 ]; do
+         echo "waiting on project {{ fiotest_basename }}0 to disappear ..."
+         sleep 10
+       done
+       echo "Project {{ fiotest_basename }}0 is deleted ... test finished"
+    elif [[ {{ fiotest_cleanup }} == "false" ]]; then
+       echo "Test is done, but project {{ fiotest_basename }}0 is not be deleted due to PVCSCALE_CLAENUP=false"
+    fi
+  fiotest.sh: |
+    #!/bin/bash
+    cp /root/.kube/config /tmp/config
+    export KUBECONFIG=/tmp/config
+    yum install -y pbench-fio
+    cp /root/workload/fio.job /opt/pbench-agent/bench-scripts/templates
+    oc get pods -n {{ fiotest_basename }}0 -o wide | awk '{print $6}' |grep -v IP > /tmp/clients.txt
+    echo "sleeping 1h"
+    sleep 3600
+    pbench-fio --test-types="{{ fiotest_testtype }}" --config="{{ fiotest_testtype }}-{{ fiotest_maxpods }}" --clients=$(cat /tmp/clients.txt | awk -vORS=, '{ print $1 }' | sed 's/,$/\n/')
+  fio.job: |
+    [global]
+    bs="{{ fiotest_bs }}"
+    runtime="{{ fiotest_runtime }}"
+    ioengine=libaio
+    iodepth="{{ fiotest_iodepth }}"
+    direct="{{ fiotest_direct }}"
+    sync=0
+    time_based=1
+    clocksource=gettimeofday
+    ramp_time="{{ fiotest_ramptime }}"
+    write_bw_log=fio
+    write_iops_log=fio
+    write_lat_log=fio
+    log_avg_msec=1000
+    write_hist_log=fio
+    log_hist_msec=10000
+    [job-$target]
+    filename="{{ fiotest_filename }}"
+    rw="{{ fiotest_testtype }}"
+    size="{{ fiotest_filesize }}"
+    numjobs=1
+  fiotest.yml: |
+    provider: local
+    ClusterLoader:
+      cleanup: {{ fiotest_cleanup }}
+      projects:
+        - num: 1
+          basename: {{ fiotest_basename }}
+          tuning: default
+          ifexists: delete
+          templates:
+            - num: {{ fiotest_maxpods }}
+              basename: fiotest
+              file: fiotesttemplate.yaml
+      tuningsets:
+        - name: default
+          pods:
+            stepping:
+              stepsize: {{ fiotest_stepsize }}
+              pause: {{ fiotest_pause }}
+            ratelimit:
+                delay: 0
+  fiotesttemplate.yaml: |
+    kind: Template
+    apiVersion: v1
+    metadata:
+      name: fiotest-test
+      labels:
+        name: fiotest-test
+      annotations:
+        descriptions: FIO scale test
+        tags: fio, fio-test
+    objects:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "${PVC_NAME}"
+        annotations:
+          volume.beta.kubernetes.io/storage-class: {{ fiotest_storageclass }}
+      spec:
+        accessModes:
+         - {{ access_modes }}
+        resources:
+          requests:
+            storage: {{ fiotest_storage_size }}
+    - kind: Pod
+      apiVersion: v1
+      metadata:
+        generateName: pvc-pod-
+        labels:
+          name: pvc-pod-${IDENTIFIER}
+      spec:
+        containers:
+        - image: {{ fiotest_pod_image }}
+          imagePullPolicy: Always
+          name: fio-pod
+          ports:
+          - containerPort: 22
+            protocol: TCP
+            targetPort: 22
+          - containerPort: 8765
+            protocol: TCP
+            targetPort: 8765
+          volumeMounts:
+          - name: persistentvolume
+            mountPath: "/mnt/pvcmount"
+          securityContext:
+            apabilities: {}
+            privileged: false
+            seLinuxOptions:
+              level: s0:c9,c4
+          terminationMessagePath: "/dev/termination-log"
+        restartPolicy: Never
+        volumes:
+        - name: persistentvolume
+          persistentVolumeClaim:
+            claimName: "${PVC_NAME}"
+    parameters:
+    - name: PVC_NAME
+      description: PVC name
+      required: true
+      from: pvc[a-z0-9]{10}
+      generate: expression
+    - name: IDENTIFIER
+      description: Number to append to the name of resources
+      value: '1'
