@@ -101,12 +101,19 @@ data:
       projects:
         - num: 1
           basename: {{ fiotest_basename }}
-          tuning: default
           ifexists: delete
           templates:
+            - num: 1
+              file: /root/workload/pbench-ssh.yaml
+              parameters:
+              - SSH_AUTHORIZED_KEYS: {{ storage_fio_ssh_authorized_keys }}
+              - SSH_PRIVATE_KEY: {{ storage_fio_ssh_private_key }}
+              - SSH_PUBLIC_KEY: {{ storage_fio_ssh_public_key }}
             - num: {{ fiotest_maxpods }}
-              basename: fiotest
               file: fiotesttemplate.yaml
+              parameters:
+              - STORAGE_FIO_IMAGE: {{ storage_fio_test_image }}
+              - FIO_SSHD_PORT: {{ storage_fio_test_sshd_port }}
       tuningsets:
         - name: default
           pods:
@@ -149,6 +156,21 @@ data:
         - image: {{ fiotest_pod_image }}
           imagePullPolicy: Always
           name: fio-pod
+          env:
+          - name: FIO_SSH_PORT
+            value: "${FIO_SSHD_PORT}"
+          securityContext: {}
+          volumeMounts:
+          - name: pbench-ssh
+            mountPath: /.ssh/authorized_keys
+            subPath: authorized_keys
+          - name: pbench-ssh
+            mountPath: /root/.ssh/authorized_keys
+            subPath: authorized_keys
+          - name: pbench_results
+            mountPath: /var/lib/pbench-agent
+          - name: persistentvolume
+            mountPath: "/mnt/pvcmount"
           ports:
           - containerPort: 22
             protocol: TCP
@@ -160,13 +182,19 @@ data:
           - name: persistentvolume
             mountPath: "/mnt/pvcmount"
           securityContext:
-            apabilities: {}
+            capabilities: {}
             privileged: false
             seLinuxOptions:
               level: s0:c9,c4
           terminationMessagePath: "/dev/termination-log"
         restartPolicy: Never
         volumes:
+        - name: pbench-ssh
+          secret:
+            secretName: pbench-ssh
+            defaultMode: 0600
+        - name: pbench-results
+          emptyDir: {}
         - name: persistentvolume
           persistentVolumeClaim:
             claimName: "${PVC_NAME}"
@@ -179,3 +207,53 @@ data:
     - name: IDENTIFIER
       description: Number to append to the name of resources
       value: '1'
+    - name: FIO_SSHD_PORT
+      description: What port should the sshd process in the fio container listen on
+      value: "20000"
+      required: true
+    - name: STORAGE_FIO_IMAGE
+      description: Which fio container image to be used in this pod
+      value: "quay.io/openshift-scale/scale-ci-fio"
+      required: true
+  pbench-ssh.yaml: |
+    kind: Template
+    apiVersion: v1
+    metadata:
+      name: sshSecretTemplate
+      creationTimestamp:
+      annotations:
+        description: Template to create ssh secret
+        tags: ''
+    objects:
+      - apiVersion: v1
+        kind: Secret
+        metadata:
+          name: pbench-ssh
+          namespace: {{ fiotest_basename }}0
+        type: Opaque
+        data:
+          authorized_keys: {{ storage_fio_ssh_authorized_keys }}
+          id_rsa: {{ storage_fio_ssh_private_key }}
+          id_rsa.pub: {{ storage_fio_ssh_public_key }}
+    parameters:
+    - name: IDENTIFIER
+      description: Number to append to the name of resources
+      value: "1"
+      required: true
+    - name: SSH_AUTHORIZED_KEYS
+      description: Authorized key file encoded for a secret
+      required: true
+    - name: SSH_PRIVATE_KEY
+      description: Number to append to the name of resources
+      required: true
+    - name: SSH_PUBLIC_KEY
+      description: Number to append to the name of resources
+      required: true
+  ssh_config.template: |
+    Host ${HOST}
+    user default
+    port ${STORAGE_FIO_TEST_SSHD_PORT}
+    StrictHostKeyChecking no
+    PasswordAuthentication no
+    UserKnownHostsFile /dev/null
+    IdentityFile ~/.ssh/id_rsa

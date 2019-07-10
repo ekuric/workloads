@@ -29,4 +29,14 @@ data:
   SCALE_WORKER_COUNT: "{{scale_worker_count}}"
   SCALE_POLL_ATTEMPTS: "{{scale_poll_attempts}}"
   EXPECTED_SCALE_DURATION: "{{expected_scale_duration}}"
+{% elif workload_job == "storage-fio" %}
+  STORAGE_FIO_TEST_IMAGE: "{{storage_fio_test_image}}"
+  STORAGE_FIO_TEST_SSHD_PORT: "{{storage_fio_test_sshd_port}}"
+  STORAGE_FIO_TEST_PREFIX: "{{storage_fio_test_prefix}}"
+  STORAGE_FIO_TEST_PODS: "{{storage_fio_test_pods}}"
+  STORAGE_FIO_TEST_BASENAME: "{{storage_fio_test_basename}}"
+  STORAGE_FIO_TEST_CLEANUP: "{{storage_fio_test_cleanup}}"
+  STORAGE_FIO_SSH_AUTHORIZED_KEYS: "{{pbench_ssh_public_key_file_slurp['content']}}"
+  STORAGE_FIO_SSH_PRIVATE_KEY: "{{pbench_ssh_private_key_file_slurp['content']}}"
+  STORAGE_FIO_SSH_PUBLIC_KEY: "{{pbench_ssh_public_key_file_slurp['content']}}"
 {% endif %}

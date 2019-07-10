@@ -10,7 +10,7 @@
   vars_files:
     - vars/fio.yml
   vars:
-    workload_job: "fio"
+    workload_job: "storage-fio"
   tasks:
     - name: Create scale-ci-tooling directory
       file:
@@ -24,6 +24,8 @@
       with_items:
         - src: scale-ci-tooling-ns.yml
           dest: "{{ansible_user_dir}}/scale-ci-tooling/scale-ci-tooling-ns.yml"
+          # - src: workload-fio-script-cm.yml
+          # dest: "{{ansible_user_dir}}/scale-ci-tooling/workload-fio-script-cm.yml"
 
     - name: Slurp kubeconfig file
       slurp:
@@ -55,6 +57,8 @@
           dest: "{{ansible_user_dir}}/scale-ci-tooling/workload-job.yml"
         - src: workload-fio-script-cm.yml.j2
           dest: "{{ansible_user_dir}}/scale-ci-tooling/workload-fio-script-cm.yml"
+        - src: workload-env.yml.j2
+          dest: "{{ansible_user_dir}}/scale-ci-tooling/workload-storage-fio-env.yml"
 
     - name: Check if scale-ci-tooling namespace exists
       shell: |
@@ -66,9 +70,9 @@
       debug:
         var: scale_ci_tooling_ns_exists
 
-    - name: Ensure any stale scale-ci-fio job is deleted
+    - name: Ensure any stale scale-ci-storage-fio job is deleted
       shell: |
-        oc delete job scale-ci-fio -n scale-ci-tooling
+        oc delete job scale-ci-storage-fio -n scale-ci-tooling
       register: scale_ci_tooling_project
       failed_when: scale_ci_tooling_project.rc == 0
       until: scale_ci_tooling_project.rc == 1
@@ -110,13 +114,17 @@
       shell: |
         oc replace --force -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/workload-fio-script-cm.yml"
 
+    - name: Create/replace workload script environment configmap
+      shell: | 
+        oc replace --force -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/workload-storage-fio-env.yml"
+
     - name: Create/replace workload job to that runs workload script
       shell: |
         oc replace --force -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/workload-job.yml"
 
     - name: Poll until job is active
       shell: |
-        oc get job scale-ci-fio -n scale-ci-tooling -o json
+        oc get job scale-ci-storage-fio -n scale-ci-tooling -o json
       register: job_json
       retries: 60
       delay: 2
@@ -124,7 +132,7 @@
 
     - name: Poll until job is complete
       shell: |
-        oc get job scale-ci-fio -n scale-ci-tooling -o json
+        oc get job scale-ci-storage-fio -n scale-ci-tooling -o json
       register: job_json
       retries: "{{job_completion_poll_attempts}}"
       delay: 10
