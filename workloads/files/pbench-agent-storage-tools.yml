@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pbench-agent-storage-tools
+data:
+  disk: ""
+  iostat: ""
+  label: "storage"
+  mpstat: ""
+  perf: ""
+  pidstat: ""
+  sar: ""

@@ -1,0 +1,64 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: pbench-agent-storage
+  annotations:
+  openshift.io/scc: privileged
+  labels:
+    name: pbench-agent-storage
+spec:
+  template:
+    metadata:
+      labels:
+        name: pbench-agent-storage
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - image: "{{pbench_image}}"
+        name: pbench-agent
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        env:
+        - name: SYSTEMD_IGNORE_CHROOT
+          value: "1"
+        command:
+        - /usr/lib/systemd/systemd
+        - --system
+        volumeMounts:
+        - name: kubeconfig
+          mountPath: /root/.kube
+        - name: pbench-ssh
+          mountPath: /root/.ssh/authorized_keys
+          subPath: authorized_keys
+        - name: pbench-ssh
+          mountPath: /root/.ssh/id_rsa
+          subPath: id_rsa
+        - name: pbench-ssh
+          mountPath: /root/.ssh/id_rsa.pub
+          subPath: id_rsa.pub
+        - name: pbench-agent-storage-tools
+          mountPath: /var/lib/pbench-agent/tools-default
+        - name: ocp-volumes
+          mountPath: /var/lib/kubelet/pods
+        ports:
+        - containerPort: 2022
+      volumes:
+      - name: kubeconfig
+        secret:
+          secretName: kubeconfig
+      - name: pbench-ssh
+        secret:
+          secretName: pbench-ssh
+          defaultMode: 0600
+      - name: pbench-agent-storage-tools
+        configMap:
+          name: pbench-agent-storage-tools
+      - name: ocp-volumes
+        hostPath:
+          path: /var/lib/kubelet/pods
+      serviceAccountName: useroot
+      nodeSelector:
+        node-role.kubernetes.io/storage: ""
+        pbench_agent: "true"
