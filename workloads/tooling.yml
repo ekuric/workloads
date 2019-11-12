@@ -116,7 +116,7 @@
 
     - name: Label storage nodes
       shell: |
-        oc get nodes -l ''node-role.kubernetes.io/storage=true' pbench_agent=true
+        oc label nodes --overwrite -l 'node-role.kubernetes.io/storage=true' pbench_agent=true
 
     - name: Create kubeconfig secret
       shell: |
