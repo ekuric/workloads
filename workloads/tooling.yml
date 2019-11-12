@@ -28,6 +28,8 @@
           dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-master-tools.yml"
         - src: pbench-agent-worker-tools.yml
           dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-worker-tools.yml"
+        - src: pbench-agent-storage-tools.yml
+          dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-storage-tools.yml"
 
     - name: Slurp kubeconfig file
       slurp:
@@ -61,6 +63,8 @@
           dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-master-ds.yml"
         - src: pbench-worker-ds.yml.j2
           dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-worker-ds.yml"
+        - src: pbench-storage-ds.yml.j2
+          dest: "{{ansible_user_dir}}/scale-ci-tooling/pbench-storage-ds.yml"
 
     - name: Check if scale-ci-tooling namespace exists
       shell: |
@@ -100,15 +104,19 @@
 
     - name: Label master nodes
       shell: |
-        oc label nodes --overwrite -l 'node-role.kubernetes.io/master=' pbench_agent=true
+        oc label nodes --overwrite -l 'node-role.kubernetes.io/master=true' pbench_agent=true
 
     - name: Label infra nodes
       shell: |
-        oc label nodes --overwrite -l 'node-role.kubernetes.io/infra=' pbench_agent=true
+        oc label nodes --overwrite -l 'node-role.kubernetes.io/infra=true' pbench_agent=true
 
     - name: Label two worker nodes
       shell: |
-        oc get nodes -l node-role.kubernetes.io/worker= --no-headers | head -n 2 | awk '{print $1}' | xargs -I % oc label nodes % --overwrite pbench_agent=true
+        oc get nodes -l node-role.kubernetes.io/compute=true --no-headers | head -n 2 | awk '{print $1}' | xargs -I % oc label nodes % --overwrite pbench_agent=true
+
+    - name: Label storage nodes
+      shell: |
+        oc get nodes -l ''node-role.kubernetes.io/storage=true' pbench_agent=true
 
     - name: Create kubeconfig secret
       shell: |
@@ -127,12 +135,14 @@
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-infra-tools.yml"
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-master-tools.yml"
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-worker-tools.yml"
+        oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-agent-storage-tools.yml"
 
     - name: Create pbench-agent daemonsets
       shell: |
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-infra-ds.yml"
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-master-ds.yml"
         oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-worker-ds.yml"
+        oc create -n scale-ci-tooling -f "{{ansible_user_dir}}/scale-ci-tooling/pbench-storage-ds.yml"
 
     - name: Wait until pbench-agent daemonsets are ready
       shell: |
@@ -141,6 +151,7 @@
         - pbench-agent-master
         - pbench-agent-infra
         - pbench-agent-worker
+        - pbench-agent-storage
       register: pbench_agent_ds
       retries: 60
       delay: 2
